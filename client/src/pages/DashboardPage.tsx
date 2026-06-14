@@ -1,9 +1,65 @@
 import { useEffect, useMemo, useState } from "react";
 import { io } from "socket.io-client";
 import { api, clearToken, type InfrastructureRecord, type LocationRecord, type ReportRecord, type ZoneRecord } from "../api";
-import { useAuth } from "../auth";
+import { DEMO_TOKEN, useAuth } from "../auth";
 import { MapEditor } from "../components/MapEditor";
 import { Link, useNavigate } from "react-router-dom";
+
+const demoLocations: LocationRecord[] = [
+  {
+    _id: "demo-loc-1",
+    name: "Bajo puente central",
+    description: "Zona con acumulacion recurrente de agua",
+    latitude: 19.4326,
+    longitude: -99.1332
+  },
+  {
+    _id: "demo-loc-2",
+    name: "Drenaje norte",
+    description: "Infraestructura con mantenimiento pendiente",
+    latitude: 19.4392,
+    longitude: -99.1458
+  }
+];
+
+const demoReports: ReportRecord[] = [
+  {
+    _id: "demo-report-1",
+    title: "Inundacion vehicular",
+    description: "El agua cubre parcialmente dos carriles durante tormentas fuertes.",
+    severity: "high",
+    category: "inundacion",
+    status: "open",
+    location: demoLocations[0],
+    reporter: { id: "demo-user", name: "Invitado Demo", email: "demo@geolluvias.local", role: "viewer" }
+  }
+];
+
+const demoInfrastructures: InfrastructureRecord[] = [
+  {
+    _id: "demo-infra-1",
+    name: "Colector pluvial A-12",
+    category: "drenaje",
+    condition: "warning",
+    description: "Tramo con azolve identificado por Proteccion Civil.",
+    owner: "Servicios Urbanos",
+    location: demoLocations[1]
+  }
+];
+
+const demoZones: ZoneRecord[] = [
+  {
+    _id: "demo-zone-1",
+    name: "Poligono de inundacion historica",
+    description: "Area que concentra reportes al inicio de la temporada de lluvias.",
+    points: [
+      { lat: 19.437, lng: -99.149 },
+      { lat: 19.4395, lng: -99.142 },
+      { lat: 19.4335, lng: -99.1395 },
+      { lat: 19.4305, lng: -99.1465 }
+    ]
+  }
+];
 
 type DraftLocation = {
   name: string;
@@ -37,7 +93,8 @@ const emptyInfrastructure = {
 
 export const DashboardPage = () => {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user, logout, token } = useAuth();
+  const isDemoMode = token === DEMO_TOKEN;
   const [locations, setLocations] = useState<LocationRecord[]>([]);
   const [reports, setReports] = useState<ReportRecord[]>([]);
   const [infrastructures, setInfrastructures] = useState<InfrastructureRecord[]>([]);
@@ -58,6 +115,10 @@ export const DashboardPage = () => {
   const [editingLocationDraft, setEditingLocationDraft] = useState({ name: "", description: "" });
 
   const refreshData = async () => {
+    if (isDemoMode) {
+      return;
+    }
+
     const [locationsResponse, reportsResponse, infrastructuresResponse, zonesResponse] = await Promise.all([
       api.listLocations(),
       api.listReports(),
@@ -72,6 +133,14 @@ export const DashboardPage = () => {
   };
 
   useEffect(() => {
+    if (isDemoMode) {
+      setLocations(demoLocations);
+      setReports(demoReports);
+      setInfrastructures(demoInfrastructures);
+      setZones(demoZones);
+      return;
+    }
+
     void refreshData();
 
     const socket = io(import.meta.env.VITE_SOCKET_URL ?? "http://localhost:4000");
@@ -80,7 +149,7 @@ export const DashboardPage = () => {
     return () => {
       socket.disconnect();
     };
-  }, []);
+  }, [isDemoMode]);
 
   const stats = useMemo(
     () => ({
@@ -92,8 +161,37 @@ export const DashboardPage = () => {
     [locations, reports, infrastructures, zones]
   );
 
+  const applyDemoLocationUpdate = (id: string, data: { name: string; description: string; longitude: number; latitude: number }) => {
+    const nextLocation: LocationRecord = {
+      _id: id,
+      name: data.name,
+      description: data.description,
+      latitude: data.latitude,
+      longitude: data.longitude
+    };
+
+    setLocations(current => current.map(location => location._id === id ? nextLocation : location));
+    setReports(current => current.map(report => report.location?._id === id ? { ...report, location: nextLocation } : report));
+    setInfrastructures(current => current.map(item => item.location?._id === id ? { ...item, location: nextLocation } : item));
+  };
+
   const saveDraftLocation = async () => {
     if (!draftLocation) return;
+
+    if (isDemoMode) {
+      setLocations(current => [
+        ...current,
+        {
+          _id: `demo-loc-${Date.now()}`,
+          name: draftLocation.name || `Punto ${current.length + 1}`,
+          description: draftLocation.description || "Ubicacion demo creada sin servidor",
+          latitude: draftLocation.latitude,
+          longitude: draftLocation.longitude
+        }
+      ]);
+      setDraftLocation(null);
+      return;
+    }
 
     await api.createLocation({
       name: draftLocation.name || `Punto ${locations.length + 1}`,
@@ -113,6 +211,20 @@ export const DashboardPage = () => {
 
     if (!draftZone.name.trim() || !draftZone.description.trim()) {
       setZoneError("Agrega nombre y descripcion para guardar la zona.");
+      return;
+    }
+
+    if (isDemoMode) {
+      setZones(current => [
+        ...current,
+        {
+          _id: `demo-zone-${Date.now()}`,
+          name: draftZone.name.trim(),
+          description: draftZone.description.trim(),
+          points: draftZone.points
+        }
+      ]);
+      setDraftZone(null);
       return;
     }
 
@@ -137,6 +249,11 @@ export const DashboardPage = () => {
   const removeZone = async (zoneId: string) => {
     setZoneError("");
 
+    if (isDemoMode) {
+      setZones(current => current.filter(zone => zone._id !== zoneId));
+      return;
+    }
+
     try {
       await api.deleteZone(zoneId);
       await refreshData();
@@ -155,6 +272,39 @@ export const DashboardPage = () => {
 
     if (!reportForm.location) {
       setReportError("Selecciona una ubicacion para el reporte.");
+      return;
+    }
+
+    if (isDemoMode) {
+      const selectedLocation = locations.find(location => location._id === reportForm.location);
+
+      if (!selectedLocation) {
+        setReportError("La ubicacion demo seleccionada ya no existe.");
+        return;
+      }
+
+      if (reportEditId) {
+        setReports(current => current.map(report => report._id === reportEditId
+          ? { ...report, ...reportForm, location: selectedLocation }
+          : report));
+      } else {
+        setReports(current => [
+          {
+            _id: `demo-report-${Date.now()}`,
+            title: reportForm.title,
+            description: reportForm.description,
+            severity: reportForm.severity,
+            category: reportForm.category,
+            status: "open",
+            location: selectedLocation,
+            reporter: user ?? { id: "demo-user", name: "Invitado Demo", email: "demo@geolluvias.local", role: "viewer" }
+          },
+          ...current
+        ]);
+      }
+
+      setReportForm(emptyReport);
+      setReportEditId(null);
       return;
     }
 
@@ -197,6 +347,38 @@ export const DashboardPage = () => {
       return;
     }
 
+    if (isDemoMode) {
+      const selectedLocation = locations.find(location => location._id === infraForm.location);
+
+      if (!selectedLocation) {
+        setInfraError("La ubicacion demo seleccionada ya no existe.");
+        return;
+      }
+
+      if (infraEditId) {
+        setInfrastructures(current => current.map(item => item._id === infraEditId
+          ? { ...item, ...infraForm, location: selectedLocation }
+          : item));
+      } else {
+        setInfrastructures(current => [
+          {
+            _id: `demo-infra-${Date.now()}`,
+            name: infraForm.name,
+            category: infraForm.category,
+            condition: infraForm.condition,
+            description: infraForm.description,
+            owner: infraForm.owner,
+            location: selectedLocation
+          },
+          ...current
+        ]);
+      }
+
+      setInfraForm(emptyInfrastructure);
+      setInfraEditId(null);
+      return;
+    }
+
     try {
       if (infraEditId) {
         await api.updateInfrastructure(infraEditId, infraForm);
@@ -227,6 +409,12 @@ export const DashboardPage = () => {
   const searchLocation = async () => {
     if (!searchName.trim()) return;
 
+    if (isDemoMode) {
+      const found = locations.find(location => location.name.toLowerCase().includes(searchName.trim().toLowerCase()));
+      setSearchResult(found ?? null);
+      return;
+    }
+
     try {
       const result = await api.searchLocation(searchName.trim());
       setSearchResult(result.location);
@@ -254,6 +442,17 @@ export const DashboardPage = () => {
       return;
     }
 
+    if (isDemoMode) {
+      applyDemoLocationUpdate(location._id, {
+        name: editingLocationDraft.name.trim(),
+        description: editingLocationDraft.description.trim(),
+        latitude: location.latitude,
+        longitude: location.longitude
+      });
+      cancelEditLocation();
+      return;
+    }
+
     try {
       await api.updateLocation(location._id, {
         name: editingLocationDraft.name.trim(),
@@ -268,6 +467,16 @@ export const DashboardPage = () => {
 
   const deleteLocationFromTable = async (id: string) => {
     setTableError("");
+
+    if (isDemoMode) {
+      setLocations(current => current.filter(location => location._id !== id));
+      setReports(current => current.filter(report => report.location?._id !== id));
+      setInfrastructures(current => current.filter(item => item.location?._id !== id));
+      if (editingLocationId === id) {
+        cancelEditLocation();
+      }
+      return;
+    }
 
     try {
       await api.deleteLocation(id);
@@ -307,6 +516,13 @@ export const DashboardPage = () => {
         <article><strong>{stats.zones}</strong><span>Zonas trazadas</span></article>
       </section>
 
+      {isDemoMode && (
+        <section className="demo-banner panel">
+          <strong>Modo demo activo</strong>
+          <p>Estas viendo datos locales de ejemplo porque GitHub Pages no tiene backend. El mapa, la tabla y las vistas siguen siendo navegables.</p>
+        </section>
+      )}
+
       <section className="content-grid">
         <div className="main-column">
           <div className="panel map-panel">
@@ -332,9 +548,30 @@ export const DashboardPage = () => {
               draftLocation={draftLocation}
               onDraftLocationChange={setDraftLocation}
               onSaveDraftLocation={saveDraftLocation}
-              onUpdateLocation={async (id, data) => { await api.updateLocation(id, data); await refreshData(); }}
-              onDeleteLocation={async id => { await api.deleteLocation(id); await refreshData(); }}
-              onDeleteZone={async id => { await api.deleteZone(id); await refreshData(); }}
+              onUpdateLocation={async (id, data) => {
+                if (isDemoMode) {
+                  applyDemoLocationUpdate(id, data);
+                  return;
+                }
+                await api.updateLocation(id, data);
+                await refreshData();
+              }}
+              onDeleteLocation={async id => {
+                if (isDemoMode) {
+                  await deleteLocationFromTable(id);
+                  return;
+                }
+                await api.deleteLocation(id);
+                await refreshData();
+              }}
+              onDeleteZone={async id => {
+                if (isDemoMode) {
+                  await removeZone(id);
+                  return;
+                }
+                await api.deleteZone(id);
+                await refreshData();
+              }}
               onZoneDraft={points => setDraftZone({ name: "", description: "", points })}
             />
           </div>
@@ -416,7 +653,14 @@ export const DashboardPage = () => {
                   </div>
                   <div className="row-actions">
                     <button onClick={() => editReport(report)}>Editar</button>
-                    <button className="danger" onClick={async () => { await api.deleteReport(report._id); await refreshData(); }}>Eliminar</button>
+                    <button className="danger" onClick={async () => {
+                      if (isDemoMode) {
+                        setReports(current => current.filter(item => item._id !== report._id));
+                        return;
+                      }
+                      await api.deleteReport(report._id);
+                      await refreshData();
+                    }}>Eliminar</button>
                   </div>
                 </article>
               ))}
@@ -459,7 +703,14 @@ export const DashboardPage = () => {
                   </div>
                   <div className="row-actions">
                     <button onClick={() => editInfrastructure(item)}>Editar</button>
-                    <button className="danger" onClick={async () => { await api.deleteInfrastructure(item._id); await refreshData(); }}>Eliminar</button>
+                    <button className="danger" onClick={async () => {
+                      if (isDemoMode) {
+                        setInfrastructures(current => current.filter(record => record._id !== item._id));
+                        return;
+                      }
+                      await api.deleteInfrastructure(item._id);
+                      await refreshData();
+                    }}>Eliminar</button>
                   </div>
                 </article>
               ))}

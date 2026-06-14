@@ -122,6 +122,10 @@ label {
   gap: 1rem;
 }
 
+.demo-access {
+  width: 100%;
+}
+
 .toggle-row,
 .topbar-actions,
 .popup-actions,
@@ -202,6 +206,17 @@ label {
 .stats-grid span,
 .analytics-grid span {
   color: var(--muted);
+}
+
+.demo-banner {
+  display: grid;
+  gap: 0.35rem;
+  border-color: rgba(56, 189, 248, 0.3);
+  background: linear-gradient(180deg, rgba(14, 165, 233, 0.12), rgba(15, 23, 42, 0.92));
+}
+
+.demo-banner p {
+  margin: 0;
 }
 
 .content-grid {

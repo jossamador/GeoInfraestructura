@@ -1,12 +1,22 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, clearToken, getToken, setToken, type AuthUser } from "./api";
 
+export const DEMO_TOKEN = "demo-mode-token";
+
+const demoUser: AuthUser = {
+  id: "demo-user",
+  name: "Invitado Demo",
+  email: "demo@geolluvias.local",
+  role: "viewer"
+};
+
 type AuthContextValue = {
   user: AuthUser | null;
   token: string | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (name: string, email: string, password: string) => Promise<void>;
+  enterDemo: () => void;
   logout: () => void;
 };
 
@@ -20,6 +30,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     const hydrate = async () => {
       if (!token) {
+        setLoading(false);
+        return;
+      }
+
+      if (token === DEMO_TOKEN) {
+        setUser(demoUser);
         setLoading(false);
         return;
       }
@@ -52,6 +68,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setUser(response.user);
   };
 
+  const enterDemo = () => {
+    setToken(DEMO_TOKEN);
+    setTokenState(DEMO_TOKEN);
+    setUser(demoUser);
+    setLoading(false);
+  };
+
   const logout = () => {
     clearToken();
     setTokenState(null);
@@ -59,7 +82,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const value = useMemo(
-    () => ({ user, token, loading, login, register, logout }),
+    () => ({ user, token, loading, login, register, enterDemo, logout }),
     [user, token, loading]
   );
 

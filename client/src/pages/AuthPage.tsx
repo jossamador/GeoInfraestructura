@@ -4,7 +4,7 @@ import { useAuth } from "../auth";
 
 export const AuthPage = () => {
   const navigate = useNavigate();
-  const { login, register } = useAuth();
+  const { login, register, enterDemo } = useAuth();
   const [mode, setMode] = useState<"login" | "register">("login");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -63,6 +63,16 @@ export const AuthPage = () => {
           {error && <p className="error-text">{error}</p>}
 
           <button type="submit" className="primary">{mode === "login" ? "Entrar" : "Crear cuenta"}</button>
+          <button
+            type="button"
+            className="ghost demo-access"
+            onClick={() => {
+              enterDemo();
+              navigate("/dashboard");
+            }}
+          >
+            Ver demo sin servidor
+          </button>
         </form>
       </section>
     </main>
